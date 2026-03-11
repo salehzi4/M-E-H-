@@ -260,7 +260,7 @@
                 </div>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                <button onclick="showConfigModal()" class="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg font-semibold transition flex items-center gap-2 text-sm">
+                <button onclick="showConfigModal()" class="hidden">
                     <i class="fas fa-cog"></i> إعداد Supabase
                 </button>
                 <button onclick="refreshData()" class="bg-indigo-700 text-white px-3 py-2 rounded-lg hover:bg-indigo-800 transition">
@@ -416,13 +416,12 @@ function setCalcCell(id, val) { const el = document.getElementById(id); if (el) 
 let db = null;
 let isConnected = false;
 
+// بيانات Supabase مدمجة مباشرةً - تتصل تلقائياً
+const SUPABASE_URL = 'https://qfsmfwlpmtlcsznbuswx.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFmc21md2xwbXRsY3N6bmJ1c3d4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxODcwNjcsImV4cCI6MjA4ODc2MzA2N30.s0Oo6xixBCj3qyH_Pqk7ma-LwiyRMbnUibnb1sIrXsE';
+
 function loadConfig() {
-    try {
-        return {
-            url: localStorage.getItem('sb_url') || '',
-            key: localStorage.getItem('sb_key') || ''
-        };
-    } catch(e) { return { url: '', key: '' }; }
+    return { url: SUPABASE_URL, key: SUPABASE_ANON_KEY };
 }
 
 function initSupabase(url, key) {
@@ -536,14 +535,9 @@ document.addEventListener('DOMContentLoaded', function () {
         if (e.target && e.target.matches('input[type="text"], textarea')) fixInputDigits(e.target);
     });
 
-    // تحميل الإعدادات المحفوظة
-    const cfg = loadConfig();
-    if (cfg.url && cfg.key) {
-        initSupabase(cfg.url, cfg.key);
-        loadDataFromSupabase();
-    } else {
-        showConfigModal();
-    }
+    // اتصال تلقائي بـ Supabase
+    initSupabase(SUPABASE_URL, SUPABASE_ANON_KEY);
+    loadDataFromSupabase();
 });
 
 // ================================================================
