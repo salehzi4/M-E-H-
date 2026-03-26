@@ -1121,7 +1121,7 @@ function generatePrint(sId,tabId,type,aptName,sel) {
             {label:'المجموع الكلي',value:d.total,total:true}
         ];
         const page=document.createElement('div'); page.className='print-page';
-        page.innerHTML='<div class="print-header"><div class="print-title">فاتورة الكهرباء والصرف الصحي</div><div class="print-apartment">'+aptName+'</div></div>'+
+        page.innerHTML='<div class="print-header"><div class="print-title">فاتورة الكهرباء والماء والصرف الصحي</div><div class="print-apartment">'+aptName+'</div></div>'+
             '<table class="print-table">'+
             printRows.map(r=>'<tr class="'+(r.total?'print-row-total':'print-row-'+r.color)+'"><td class="print-label">'+r.label+'</td><td class="print-value">'+r.value+'</td></tr>').join('')+
             '</table><div class="print-footer">تم إنشاء هذه الفاتورة إلكترونياً بتاريخ '+new Date().toLocaleDateString('en-US')+'</div>';
