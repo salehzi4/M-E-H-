@@ -442,6 +442,147 @@ let isConnected = false;
 const SUPABASE_URL = 'https://qfsmfwlpmtlcsznbuswx.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFmc21md2xwbXRsY3N6bmJ1c3d4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxODcwNjcsImV4cCI6MjA4ODc2MzA2N30.s0Oo6xixBCj3qyH_Pqk7ma-LwiyRMbnUibnb1sIrXsE';
 
+// ================================================================
+// دوال الربط مع نظام إدارة الشقق
+// ================================================================
+
+/**
+ * توليد كود فريد ثابت لكل شقة من section + apartment + type
+ * يستخدم MD5-like hash مبسط لتوليد كود قصير وثابت
+ * مثال: "الشقة 1" + "الفرعية 1" + "sub" → "APT-A1B2C3"
+ */
+function generateApartmentCode(section, apartment, type) {
+    if (!section || !apartment) return '';
+    var str = String(section).trim() + '|' + String(apartment).trim() + '|' + String(type || '').trim();
+    // hash بسيط ثابت
+    var hash = 0;
+    for (var i = 0; i < str.length; i++) {
+        var chr = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + chr;
+        hash |= 0;
+    }
+    // تحويل للـ base36 وأخذ 8 حروف بصيغة كبيرة
+    var hashStr = Math.abs(hash).toString(36).toUpperCase().padStart(6, '0').substring(0, 8);
+    return 'APT-' + hashStr;
+}
+
+/**
+ * استخراج تاريخ نهاية الفترة من النص
+ * أمثلة الفترات المدعومة:
+ *  - "20/2/2026 – 22/3/2026"
+ *  - "20/2/2026 - 22/3/2026"
+ *  - "2026-02-20 to 2026-03-22"
+ *  - "20-2-2026 إلى 22-3-2026"
+ */
+function parseEndDateFromPeriod(period) {
+    if (!period) return null;
+    var str = toEnglishDigits(String(period).trim());
+
+    // فصل النص بأي فاصل: – | - | إلى | to | حتى
+    var parts = str.split(/[–\-]|إلى|to|حتى/i);
+    if (parts.length < 2) return null;
+
+    // آخر جزء = تاريخ النهاية
+    var endStr = parts[parts.length - 1].trim();
+    return parseDate(endStr);
+}
+
+/**
+ * تحليل تاريخ بصيغ متعددة:
+ *  - DD/MM/YYYY أو D/M/YYYY
+ *  - DD-MM-YYYY
+ *  - YYYY-MM-DD
+ */
+function parseDate(str) {
+    if (!str) return null;
+    str = String(str).trim();
+
+    // YYYY-MM-DD
+    var iso = str.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+    if (iso) {
+        return new Date(parseInt(iso[1]), parseInt(iso[2]) - 1, parseInt(iso[3]));
+    }
+
+    // DD/MM/YYYY أو DD-MM-YYYY
+    var dmy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (dmy) {
+        return new Date(parseInt(dmy[3]), parseInt(dmy[2]) - 1, parseInt(dmy[1]));
+    }
+
+    // محاولة أخيرة - parse مباشر
+    var d = new Date(str);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * استخراج الشهر (YYYY-MM) من نص الفترة
+ * يأخذ تاريخ النهاية ويرجع الشهر
+ */
+function getBillMonthFromPeriod(period) {
+    var endDate = parseEndDateFromPeriod(period);
+    if (!endDate) return '';
+    var y = endDate.getFullYear();
+    var m = String(endDate.getMonth() + 1).padStart(2, '0');
+    return y + '-' + m;
+}
+
+/**
+ * نسخ نص للحافظة وإظهار toast
+ */
+function copyToClipboard(text, successMsg) {
+    if (!text) {
+        showToast('لا يوجد كود لنسخه', 'error');
+        return;
+    }
+
+    // محاولة الاستخدام الحديث
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function() {
+            showToast(successMsg || ('تم نسخ: ' + text));
+        }).catch(function() {
+            fallbackCopy(text, successMsg);
+        });
+    } else {
+        fallbackCopy(text, successMsg);
+    }
+}
+
+function fallbackCopy(text, successMsg) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+        document.execCommand('copy');
+        showToast(successMsg || ('تم نسخ: ' + text));
+    } catch (e) {
+        showToast('فشل النسخ - انسخ يدوياً: ' + text, 'error');
+    }
+    document.body.removeChild(ta);
+}
+
+/**
+ * عرض الكود الخاص بشقة معينة في modal أو تنبيه
+ */
+function showApartmentCode(sId, tabId) {
+    var secName = (document.getElementById('section-name-' + sId) || {}).value || '';
+    var aptName = (document.getElementById('name-' + sId + '-' + tabId) || {}).value || '';
+    var tab = (sectionData[sId] && sectionData[sId].tabs || []).find(function(t) { return t.id === tabId; });
+    if (!tab) {
+        showToast('لم يتم العثور على بيانات الشقة', 'error');
+        return;
+    }
+    var type = tab.type === 'main' ? 'رئيسية' : 'فرعية';
+    var code = generateApartmentCode(secName, aptName, type);
+
+    var msg = 'كود الشقة "' + aptName + '" (' + type + '):\n\n' + code +
+              '\n\nاستخدم هذا الكود في نظام إدارة الشقق لربط الفواتير تلقائياً.';
+
+    copyToClipboard(code, '✓ تم نسخ الكود: ' + code);
+}
+
 function loadConfig() {
     return { url: SUPABASE_URL, key: SUPABASE_ANON_KEY };
 }
@@ -696,7 +837,8 @@ function buildSlideHTML(sId, tabId, type, aptName) {
         '<i class="fas ' + (isMain ? 'fa-building text-yellow-600' : 'fa-home text-blue-600') + '"></i>' +
         '<input type="text" id="name-' + sId + '-' + tabId + '" value="' + escapeAttr(aptName) + '" ' +
         'class="border-b-2 border-gray-300 px-2 py-1 focus:outline-none focus:border-' + c + '-500 font-bold">' +
-        '</h3><div class="flex gap-2">' +
+        '</h3><div class="flex gap-2 flex-wrap">' +
+        '<button onclick="showApartmentCode(' + sId + ',\'' + tabId + '\')" class="btn-add" style="background:#e0e7ff;color:#3730a3;" title="نسخ كود الشقة للربط مع نظام إدارة الشقق"><i class="fas fa-copy"></i> نسخ الكود</button>' +
         '<button onclick="showPrintModal(' + sId + ',\'' + tabId + '\',\'' + type + '\')" class="btn-print btn-add"><i class="fas fa-print"></i> طباعة</button>' +
         '<button onclick="deleteTab(' + sId + ',\'' + tabId + '\')" class="text-red-500 hover:text-red-700 px-3 py-2"><i class="fas fa-trash"></i></button>' +
         '</div></div>' +
@@ -990,16 +1132,27 @@ async function saveAllToSupabase() {
         const secName = document.getElementById('section-name-'+sId)?.value || 'قسم '+sId;
         sectionData[sId].tabs.forEach(tab => {
             const aptName = document.getElementById('name-'+sId+'-'+tab.id)?.value || tab.name;
+            const isMainApt = tab.type==='main';
+            const typeText = isMainApt ? 'رئيسية' : 'فرعية';
+            // الكود الثابت للشقة - مستقل عن البيانات الأخرى
+            const aptCode = generateApartmentCode(secName, aptName, typeText);
+
             document.querySelectorAll('#tbody-'+sId+'-'+tab.id+' tr').forEach(row => {
                 const rn = row.dataset.rowNum;
                 const isMain = tab.type==='main';
                 const p = id => { const e=document.getElementById(id); return e ? toEnglishDigits(e.value||e.textContent||'0') : '0'; };
+                const periodVal = document.getElementById((isMain?'main':'sub')+'-period-'+sId+'-'+tab.id+'-'+rn)?.value||'';
+                // استخراج الشهر تلقائياً من نهاية الفترة
+                const billMonth = getBillMonthFromPeriod(periodVal);
+
                 rows.push({
                     section: secName,
                     apartment: aptName,
-                    type: isMain ? 'رئيسية' : 'فرعية',
+                    type: typeText,
                     row_number: parseInt(rn),
-                    period: document.getElementById((isMain?'main':'sub')+'-period-'+sId+'-'+tab.id+'-'+rn)?.value||'',
+                    period: periodVal,
+                    apartment_code: aptCode,
+                    bill_month: billMonth,
                     company_current: parseFloat(p((isMain?'main-company-current':'sub-current')+'-'+sId+'-'+tab.id+'-'+rn))||0,
                     company_previous: parseFloat(p(isMain?'main-company-prev-'+sId+'-'+tab.id+'-'+rn:'sub-prev-'+sId+'-'+tab.id+'-'+rn))||0,
                     sub_sum: isMain ? parseFloat(p('main-sub-sum-'+sId+'-'+tab.id+'-'+rn))||0 : 0,
